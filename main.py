@@ -8,7 +8,8 @@ load_dotenv()
 
 app = FastAPI()
 
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "my_verify_token")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+API_TOKEN = os.getenv("API_TOKEN")
 
 
 # 1️⃣ Verification endpoint (Facebook calls this once)
