@@ -4,18 +4,25 @@ import os
 from dotenv import load_dotenv
 import uvicorn
 import requests
-from openai import OpenAI
 import json
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
 app = FastAPI()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 API_TOKEN = os.getenv("API_TOKEN")
 FB_MESSAGER_API_URL = "https://graph.facebook.com/v24.0/me/messages"
 
+# Structure for JSON response from Gemini
+class TimeSlot(BaseModel):
+    day: str = Field(..., description="Day of the week")
+    start_time: str = Field(..., description="Start time in HH:MM format")
+    end_time: str = Field(..., description="End time in HH:MM format")
 
 # Initial verification endpoint (Required)
 @app.get("/webhook")
@@ -53,7 +60,7 @@ def process_message(data: dict):
             sender_id = message_payload["sender"]["id"]
             message_text = message_payload["message"]["text"]
 
-            # Process message with OpenAI
+            # Process message with Gemini
             response_text = parse_message(message_text)
 
             # Build a reply string
@@ -67,34 +74,38 @@ def process_message(data: dict):
     except Exception as e:
         print(f"Error processing message: {e}")
 
-# Send message to OpenAI
+# Send message to Gemini
 def parse_message(user_message: str) -> dict:
-    instructions = """
-    You are an assistant that extracts work schedule requests from natural language messages.
-    Always respond with JSON in the following format:
 
-    {
-    "day": "<Day of the week>",
-    "start_time": "<HH:MM 12-hour format>",
-    "end_time": "<HH:MM 12-hour format>"
-    }
+    system_instruction = (
+            "You are an expert scheduling assistant. Your task is to extract three pieces of "
+            "information from the user's message: the 'day', 'start_time', and 'end_time' of a "
+            "requested event. If any piece of information is missing or unclear, use the placeholder 'N/A'."
+            "You must return the output in the requested JSON format."
+        )
 
-    If any information is missing, return null for that field.
-    """
-    response = client.responses.create(
-        model="gpt-4o",
-        instructions=instructions,
-        input=user_message,
-        temperature=0  # Set as 0 so output is structured and consistent
-    )
-
-    output_text = response.output_text.strip()
     try:
-        parsed = json.loads(output_text)
-    except json.JSONDecodeError:
-        parsed = {"day": None, "start_time": None, "end_time": None}
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user_message,
+            config=types.GenerateContentConfig(
+                temperature=0,
+                system_instruction=system_instruction,
+                # Specify the desired structured output format using the Pydantic schema
+                response_mime_type="application/json",
+                response_schema=TimeSlot,
+            )
+        )
 
-    return parsed
+        # Parse the JSON string from the response and return it as a Python dictionary
+        extracted_data = json.loads(response.text)
+        return extracted_data
+
+    except Exception as e:
+        print(f"Error during Gemini API call: {e}")
+        # Return default structure on failure to prevent the main process from crashing
+        return {"day": "N/A", "start_time": "N/A", "end_time": "N/A"}
+
  
 
 # Send message back to user
