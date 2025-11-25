@@ -63,9 +63,12 @@ def process_message(data: dict):
 
             # Process message with Gemini
             response_text = parse_message(message_text)
+
+            # Get name from sender ID
+            name = get_user_name(sender_id)
             
             # Build a reply string
-            reply_text = f"Got it {sender_id}! You requested:\nDay: {response_text.get('day')}\n" \
+            reply_text = f"Got it {name}! You requested:\nDay: {response_text.get('day')}\n" \
                          f"Start: {response_text.get('start_time')}\nEnd: {response_text.get('end_time')}"
 
             send_message(sender_id, reply_text)
@@ -74,6 +77,24 @@ def process_message(data: dict):
         print("No message payload found in the request.")
     except Exception as e:
         print(f"Error processing message: {e}")
+
+# Get user's name from Facebook
+def get_user_name(sender_id: str):
+    url = f"https://graph.facebook.com/v24.0/{sender_id}"
+    
+    params = {
+        "fields": "first_name",
+        "access_token": API_TOKEN
+    }
+    
+    response = requests.get(url, params=params)
+    
+    if response.status_code == 200:
+        data = response.json()
+        return data.get('first_name', 'there')
+    else:
+        print("Failed to get user info:", response.text)
+        return "there"
 
 # Send message to Gemini
 def parse_message(user_message: str) -> dict:
