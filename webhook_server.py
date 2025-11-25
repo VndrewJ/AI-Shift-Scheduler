@@ -66,10 +66,21 @@ def process_message(data: dict):
 
             # Get name from sender ID
             name = get_user_name(sender_id)
-            
-            # Build a reply string
-            reply_text = f"Got it {name}! You requested:\nDay: {response_text.get('day')}\n" \
-                         f"Start: {response_text.get('start_time')}\nEnd: {response_text.get('end_time')}"
+
+            # Call shift service to insert shift
+            result = shift_service._insert_shift(
+                name,
+                response_text.get('day'),
+                response_text.get('start_time'),
+                response_text.get('end_time')
+            )
+
+            if result != shift_service.UPDATE_SUCCESS:
+                reply_text = f"Sorry {name}, there was an error processing your request: {result}."
+            else:
+                # Build a reply string
+                reply_text = f"Got it {name}! You requested:\nDay: {response_text.get('day')}\n" \
+                            f"Start: {response_text.get('start_time')}\nEnd: {response_text.get('end_time')}"
 
             send_message(sender_id, reply_text)
 
