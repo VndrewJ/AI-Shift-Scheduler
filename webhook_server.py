@@ -8,6 +8,7 @@ import json
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+import shift_service
 
 load_dotenv()
 
@@ -62,9 +63,9 @@ def process_message(data: dict):
 
             # Process message with Gemini
             response_text = parse_message(message_text)
-
+            
             # Build a reply string
-            reply_text = f"Got it! You requested:\nDay: {response_text.get('day')}\n" \
+            reply_text = f"Got it {sender_id}! You requested:\nDay: {response_text.get('day')}\n" \
                          f"Start: {response_text.get('start_time')}\nEnd: {response_text.get('end_time')}"
 
             send_message(sender_id, reply_text)
