@@ -19,8 +19,18 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 API_TOKEN = os.getenv("API_TOKEN")
 FB_MESSAGER_API_URL = "https://graph.facebook.com/v24.0/me/messages"
 
+# Map error codes to user-friendly messages
+ERROR_MESSAGES = {
+    shift_service.ERROR_INVALID_ACTION: "The action you requested is invalid. Please specify 'add' or 'delete'.",
+    shift_service.ERROR_INVALID_NAME: "I couldn't find your name in the system. Please contact an admin.",
+    shift_service.ERROR_INVALID_TIME: "The times you provided are invalid. Please use times between 9am and 6pm, and make sure the end time is after the start time.",
+    shift_service.ERROR_ENTRY_EXISTS: "You already have a shift scheduled for this day. Please request to update it if needed.",
+    shift_service.ERROR_DAY_LIMIT_REACHED: "Sorry, this day is already fully booked. Please choose another day.",
+}
+
 # Structure for JSON response from Gemini
 class TimeSlot(BaseModel):
+    action: str = Field(..., description="Action to be performed (e.g., add, delete)")
     day: str = Field(..., description="Day of the week")
     start_time: str = Field(..., description="Start time in 12-hour format with am/pm (e.g., 9am, 2pm)")
     end_time: str = Field(..., description="End time in 12-hour format with am/pm (e.g., 5pm, 11pm)")
@@ -67,20 +77,22 @@ def process_message(data: dict):
             # Get name from sender ID
             name = get_user_name(sender_id)
 
-            # Call shift service to insert shift
-            result = shift_service._insert_shift(
-                name,
-                response_text.get('day'),
-                response_text.get('start_time'),
-                response_text.get('end_time')
-            )
-
-            if result != shift_service.UPDATE_SUCCESS:
-                reply_text = f"Sorry {name}, there was an error processing your request: {result}."
+            # Action tree
+            if response_text.get('action') == 'add':
+                reply_text = insert_shift(
+                    name,
+                    response_text.get('day'),
+                    response_text.get('start_time'),
+                    response_text.get('end_time')
+                )
+            elif response_text.get('action') == 'delete':
+                reply_text = delete_shift(
+                    name,
+                    response_text.get('day')
+                )
             else:
-                # Build a reply string
-                reply_text = f"Got it {name}! You requested:\nDay: {response_text.get('day')}\n" \
-                            f"Start: {response_text.get('start_time')}\nEnd: {response_text.get('end_time')}"
+                error_msg = ERROR_MESSAGES.get(shift_service.ERROR_INVALID_ACTION, "Invalid action. Please specify 'add' or 'delete'.")
+                reply_text = f"❌ {error_msg}"
 
             send_message(sender_id, reply_text)
 
@@ -88,6 +100,36 @@ def process_message(data: dict):
         print("No message payload found in the request.")
     except Exception as e:
         print(f"Error processing message: {e}")
+
+# Insert shift
+def insert_shift(name, day, start_time, end_time):
+    result = shift_service._insert_shift(name, day, start_time, end_time)
+    
+    # Generate appropriate response based on result
+    if result == shift_service.UPDATE_SUCCESS:
+        reply_text = (f"✅ All set, {name}! Your shift has been scheduled:\n"
+                    f"📅 Day: {day}\n"
+                    f"🕐 Start: {start_time}\n"
+                    f"🕑 End: {end_time}")
+    else:
+        # Get user-friendly error message
+        error_msg = ERROR_MESSAGES.get(result, "An unknown error occurred. Please try again.")
+        reply_text = f"❌ {error_msg}"
+    
+    return reply_text
+
+# Delete shift
+def delete_shift(name, day):
+    result = shift_service.delete_shift(name, day)
+    
+    # Generate appropriate response based on result
+    if result == shift_service.DELETE_SUCCESS:
+        reply_text = f"✅ Done, {name}! Your shift on {day} has been removed."
+    else:
+        error_msg = ERROR_MESSAGES.get(result, "An unknown error occurred. Please try again.")
+        reply_text = f"❌ {error_msg}"
+    
+    return reply_text
 
 # Get user's name from Facebook
 def get_user_name(sender_id: str):
@@ -111,9 +153,10 @@ def get_user_name(sender_id: str):
 def parse_message(user_message: str) -> dict:
 
     system_instruction = (
-            "You are an expert scheduling assistant. Your task is to extract three pieces of "
-            "information from the user's message: the 'day', 'start_time', and 'end_time' of a "
+            "You are an expert scheduling assistant. Your task is to extract four pieces of "
+            "information from the user's message: the 'day', 'start_time', 'end_time', and 'action' of a "
             "requested event. Times must be in 12-hour format with am/pm (e.g., '9am', '2pm', '5pm'). "
+            "The action will either be 'add', or 'delete'. "
             "If any piece of information is missing or unclear, use the placeholder 'N/A'. "
             "You must return the output in the requested JSON format."
         )
